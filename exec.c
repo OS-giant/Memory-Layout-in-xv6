@@ -12,7 +12,11 @@ exec(char *path, char **argv)
 {
   char *s, *last;
   int i, off;
-  uint argc, sz, sp, ustack[3+MAXARG+1];
+  uint argc;
+  //uint sz, sp, ustack[3+MAXARG+1];
+  uint sz2;
+  uint sp2;
+  uint ustack2[3+MAXARG+1];
   struct elfhdr elf;
   struct inode *ip;
   struct proghdr ph;
@@ -39,7 +43,12 @@ exec(char *path, char **argv)
     goto bad;
 
   // Load program into memory.
-  sz = 0;
+  
+  //I added
+  //converting kernelbase to decimal and subtract a page size (4096) from it
+  sz2 = 2143299344;
+
+  //sz = 0;
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
     if(readi(ip, (char*)&ph, off, sizeof(ph)) != sizeof(ph))
       goto bad;
@@ -49,8 +58,13 @@ exec(char *path, char **argv)
       goto bad;
     if(ph.vaddr + ph.memsz < ph.vaddr)
       goto bad;
-    if((sz = allocuvm(pgdir, sz, ph.vaddr + ph.memsz)) == 0)
+    // if((sz = allocuvm(pgdir, sz, ph.vaddr + ph.memsz)) == 0)
+    //   goto bad;
+
+    //I added
+    if((sz2 = allocuvm(pgdir, sz2, ph.vaddr + ph.memsz)) == 0)
       goto bad;
+
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
     if(loaduvm(pgdir, (char*)ph.vaddr, ip, ph.off, ph.filesz) < 0)
@@ -62,30 +76,60 @@ exec(char *path, char **argv)
 
   // Allocate two pages at the next page boundary.
   // Make the first inaccessible.  Use the second as the user stack.
-  sz = PGROUNDUP(sz);
-  if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
-    goto bad;
-  clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
-  sp = sz;
 
-  // Push argument strings, prepare rest of stack in ustack.
+  //I added
+  sz2 = PGROUNDUP(sz2);
+  if((sz2 = allocuvm(pgdir, sz2, sz2 + PGSIZE)) == 0)
+    goto bad;
+  clearpteu(pgdir, (char*)(sz2 - 2*PGSIZE));
+  sp2 = sz2;
+
   for(argc = 0; argv[argc]; argc++) {
     if(argc >= MAXARG)
       goto bad;
-    sp = (sp - (strlen(argv[argc]) + 1)) & ~3;
-    if(copyout(pgdir, sp, argv[argc], strlen(argv[argc]) + 1) < 0)
+    sp2 = (sp2 - (strlen(argv[argc]) + 1)) & ~3;
+    if(copyout(pgdir, sp2, argv[argc], strlen(argv[argc]) + 1) < 0)
       goto bad;
-    ustack[3+argc] = sp;
+    ustack2[3+argc] = sp2;
   }
-  ustack[3+argc] = 0;
+  ustack2[3+argc] = 0;
 
-  ustack[0] = 0xffffffff;  // fake return PC
-  ustack[1] = argc;
-  ustack[2] = sp - (argc+1)*4;  // argv pointer
+  ustack2[0] = 0xffffffff;  // fake return PC
+  ustack2[1] = argc;
+  ustack2[2] = sp2 - (argc+1)*4;  // argv pointer
 
-  sp -= (3+argc+1) * 4;
-  if(copyout(pgdir, sp, ustack, (3+argc+1)*4) < 0)
+  sp2 -= (3+argc+1) * 4;
+  if(copyout(pgdir, sp2, ustack2, (3+argc+1)*4) < 0)
     goto bad;
+
+
+
+
+
+  // sz = PGROUNDUP(sz);
+  // if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
+  //   goto bad;
+  // clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
+  // sp = sz;
+
+  // // Push argument strings, prepare rest of stack in ustack.
+  // for(argc = 0; argv[argc]; argc++) {
+  //   if(argc >= MAXARG)
+  //     goto bad;
+  //   sp = (sp - (strlen(argv[argc]) + 1)) & ~3;
+  //   if(copyout(pgdir, sp, argv[argc], strlen(argv[argc]) + 1) < 0)
+  //     goto bad;
+  //   ustack[3+argc] = sp;
+  // }
+  // ustack[3+argc] = 0;
+
+  // ustack[0] = 0xffffffff;  // fake return PC
+  // ustack[1] = argc;
+  // ustack[2] = sp - (argc+1)*4;  // argv pointer
+
+  // sp -= (3+argc+1) * 4;
+  // if(copyout(pgdir, sp, ustack, (3+argc+1)*4) < 0)
+  //   goto bad;
 
   // Save program name for debugging.
   for(last=s=path; *s; s++)
@@ -96,9 +140,9 @@ exec(char *path, char **argv)
   // Commit to the user image.
   oldpgdir = curproc->pgdir;
   curproc->pgdir = pgdir;
-  curproc->sz = sz;
+  curproc->sz = sz2;
   curproc->tf->eip = elf.entry;  // main
-  curproc->tf->esp = sp;
+  curproc->tf->esp = sp2;
   switchuvm(curproc);
   freevm(oldpgdir);
   return 0;
