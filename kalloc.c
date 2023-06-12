@@ -94,3 +94,4 @@ kalloc(void)
   return (char*)r;
 }
 
+void grow_the_stack()
